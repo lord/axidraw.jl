@@ -1,0 +1,4 @@
+name = "axidraw"
+uuid = "5887361a-124b-4df2-ab54-81e3b59f26ed"
+authors = ["Robert Lord <robert@lord.io>"]
+version = "0.1.0"
