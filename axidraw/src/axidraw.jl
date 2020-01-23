@@ -5,18 +5,20 @@ SERVO_MIN = 9855   # Lowest allowed position; "0%" on the scale.       Default v
 SERVO_RANGE = SERVO_MAX-SERVO_MIN # 17976
 SERVO_FASTEST_TIME = 0.25 # minimum time in seconds to go from SERVO_MIN to SERVO_MAX
 
-function cmd(port::SerialPort, query)
-  write(port, query * "\r")
-  resp = replace(readuntil(port, '\n'), ['\r', '\n', '\0'] => "")
-  if resp != "OK"
-    println("got error from plotter: " * repr(resp) * " when sending command: " * repr(query))
-    @assert false
-  end
-end
-
 function query(port::SerialPort, query)
   write(port, query * "\r")
-  strip(readuntil(port, '\n'))
+  last_val = nothing
+  while true
+    res = replace(readuntil(port, '\n'), ['\r', '\n', '\0'] => "")
+    if res == "OK"
+      return last_val
+    elseif '!' ∈ res
+      println("got error from plotter: " * repr(res) * " when sending command: " * repr(query))
+      @assert false
+    else
+      last_val = res
+    end
+  end
 end
 
 mutable struct Plotter
@@ -33,8 +35,13 @@ mutable struct Plotter
     setspeed(plotter, 50, 75)
     setpenpos(plotter, 40, 60)
     penup(plotter)
+    buttonwaspressed(plotter) # discard button press if happened before plotter was created
     plotter
   end
+end
+
+function buttonwaspressed(plotter::Plotter)
+  query(plotter.port, "QB") == "1"
 end
 
 function setpenpos(plotter::Plotter, posDown::Int, posUp::Int)
@@ -43,8 +50,8 @@ function setpenpos(plotter::Plotter, posDown::Int, posUp::Int)
 
   slope = SERVO_RANGE / 100
 
-  cmd(plotter.port, "SC,4," * string(trunc(Int, SERVO_MIN + posUp * slope)))
-  cmd(plotter.port, "SC,5," * string(trunc(Int, SERVO_MIN + posDown * slope)))
+  query(plotter.port, "SC,4," * string(trunc(Int, SERVO_MIN + posUp * slope)))
+  query(plotter.port, "SC,5," * string(trunc(Int, SERVO_MIN + posDown * slope)))
 
   plotter.posUp = posUp
   plotter.posDown = posDown
@@ -69,8 +76,8 @@ function setspeed(plotter::Plotter, speedDown::Int, speedUp::Int)
 
   steps_per_second = SERVO_RANGE / SERVO_FASTEST_TIME
   # plotter unit is in 1/12 steps per 24ms
-  cmd(plotter.port, "SC,11," * string(speedUp * 18))
-  cmd(plotter.port, "SC,12," * string(speedDown * 18))
+  query(plotter.port, "SC,11," * string(speedUp * 18))
+  query(plotter.port, "SC,12," * string(speedDown * 18))
 
   plotter.speedUp = speedUp
   plotter.speedDown = speedDown
@@ -84,7 +91,7 @@ function penup(plotter::Plotter)
     return
   end
   plotter.penIsDown = false
-  cmd(plotter.port, "SP,1," * string(trunc(Int, move_time * 1000)))
+  query(plotter.port, "SP,1," * string(trunc(Int, move_time * 1000)))
   sleep(move_time - 0.01)
 end
 
@@ -96,15 +103,17 @@ function pendown(plotter::Plotter)
     return
   end
   plotter.penIsDown = true
-  cmd(plotter.port, "SP,0," * string(trunc(Int, move_time * 1000)))
+  query(plotter.port, "SP,0," * string(trunc(Int, move_time * 1000)))
   sleep(move_time - 0.01)
 end
 
 println("connecting...")
 plotter = Plotter("/dev/cu.usbmodem14101")
+println(buttonwaspressed(plotter))
 pendown(plotter)
 penup(plotter)
 pendown(plotter)
 penup(plotter)
 pendown(plotter)
 penup(plotter)
+println(buttonwaspressed(plotter))
